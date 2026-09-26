@@ -3,66 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<script src="https://sdk.crazygames.com/crazygames-sdk-v3.js"></script>
+
 <meta name="description" content="Gear Merge: Robot Lab — drop robot parts, merge identical ones, build the ultimate robot! A physics merging puzzle.">
 <title>Gear Merge: Robot Lab</title>
 <script>
-/* Portal: CrazyGames SDK v3 — https://docs.crazygames.com/
-   Reglas aplicadas: init con await antes que todo; gameplayStart con el primer
-   input (no al cargar); gameplayStop antes de pedir un ad; mute+pausa en
-   adStarted; reanudar en adFinished/adError; respetar settings.muteAudio;
-   sin botón de fullscreen propio (el juego no tiene); física con timestep
-   fijo (substeps en physStep); todo en inglés. */
-window.Portal = (function () {
-  var ready = false;
-  function platformMuted(){
-    try { return !!(window.CrazyGames && window.CrazyGames.SDK.game.settings.muteAudio); }
-    catch (e) { return false; }
-  }
-  function applyMute(){ try { Sfx.setMuted(platformMuted()); } catch (e) {} }
-  function sdk(){ return window.CrazyGames.SDK; }
-  return {
-    name: "crazygames",
-  rewarded:false,
-    boot(){
-      try {
-        sdk().init().then(function (){
-          ready = true;
-          applyMute();
-          try {
-            if (sdk().game.addSettingsChangeListener)
-              sdk().game.addSettingsChangeListener(applyMute);
-          } catch (e) {}
-        }).catch(function (){});
-      } catch (e) {}
-    },
-    gameReady(){},
-    gameplayStart(){ try { if (ready) sdk().game.gameplayStart(); } catch (e) {} },
-    gameplayStop(){ try { if (ready) sdk().game.gameplayStop(); } catch (e) {} },
-    scoreChanged(s){},
-  showRewarded(cb){ try{cb(false);}catch(e){} },
-    showInterstitial(){
-      var self = this;
-      self.gameplayStop();
-      Game.autoPause(true); Sfx.setMuted(true);
-      var done = function (){
-        Sfx.setMuted(false); applyMute(); Game.autoPause(false);
-      };
-      try {
-        if (ready) {
-          sdk().ad.requestAd("midgame", {
-            adStarted: function (){ Sfx.setMuted(true); },
-            adFinished: done,
-            adError: done
-          });
-          // Seguridad: si los callbacks nunca llegan, reanudar a los 30s
-          setTimeout(function (){ if (Game.pausedByAd) done(); }, 30000);
-        } else done();
-      } catch (e) { done(); }
-    }
-  };
-})();
-/* GEAR MERGE BUILD v36 */
+/* Portal: none (itch.io / standalone).
+   Sin SDK: el juego corre con localStorage y sin anuncios. */
+/* GEAR MERGE BUILD v37 */
 </script>
 <style>
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -1727,9 +1674,9 @@ function render(dt){
     // next piece: ghost-style preview
     gx.fillStyle="rgba(255,255,255,.55)"; gx.font="700 11px "+FONT; gx.textAlign="right";
     gx.fillText("NEXT",BOX.r-4,26);
-    // v34: visible version stamp — bottom-left corner (build.py reemplaza v36)
+    // v34: visible version stamp — bottom-left corner (build.py reemplaza v37)
     gx.textAlign="left"; gx.fillStyle="rgba(255,255,255,.35)"; gx.font="700 11px "+FONT;
-    gx.fillText("v36",BOX.l+2,794);
+    gx.fillText("v37",BOX.l+2,794);
     // v22: assist-mode indicator
     if(Game.assist){ gx.textAlign="left"; gx.fillStyle="#7dd3c0"; gx.font="900 12px "+FONT;
       gx.fillText("🤖 ASSIST",BOX.l+6,24); gx.textAlign="right"; }
