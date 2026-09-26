@@ -62,7 +62,7 @@ window.Portal = (function () {
     }
   };
 })();
-/* GEAR MERGE BUILD v35 */
+/* GEAR MERGE BUILD v36 */
 </script>
 <style>
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -313,6 +313,7 @@ html.rm *{ animation:none !important; transition:none !important; }
       <p>Take a breath, engineer.</p>
       <button class="btn" id="btnResume">▶ &nbsp;RESUME</button>
       <button class="btn ghost" id="btnRestart">↻ &nbsp;RESTART</button>
+      <button class="btn ghost" id="btnMenu">🏠 &nbsp;MENU</button>
     </div>
 
     <div class="ov hide" id="ovStats">
@@ -1726,9 +1727,9 @@ function render(dt){
     // next piece: ghost-style preview
     gx.fillStyle="rgba(255,255,255,.55)"; gx.font="700 11px "+FONT; gx.textAlign="right";
     gx.fillText("NEXT",BOX.r-4,26);
-    // v34: visible version stamp — bottom-left corner (build.py reemplaza v35)
+    // v34: visible version stamp — bottom-left corner (build.py reemplaza v36)
     gx.textAlign="left"; gx.fillStyle="rgba(255,255,255,.35)"; gx.font="700 11px "+FONT;
-    gx.fillText("v35",BOX.l+2,794);
+    gx.fillText("v36",BOX.l+2,794);
     // v22: assist-mode indicator
     if(Game.assist){ gx.textAlign="left"; gx.fillStyle="#7dd3c0"; gx.font="900 12px "+FONT;
       gx.fillText("🤖 ASSIST",BOX.l+6,24); gx.textAlign="right"; }
@@ -1992,7 +1993,7 @@ cv.addEventListener("wheel",e=>{ e.preventDefault(); },{passive:false});
 /* ================= UI ================= */
 const ui={};
 ["score","best","ovHow","ovOver","ovEvo","ovPause","ovStats","finalScore","newBest","overSub","evoList",
- "btnPlay","btnAgain","btnRevive","btnMenu2","btnEvo","btnEvoClose","btnMute","btnMusic","btnPause","btnResume","btnRestart",
+ "btnPlay","btnAgain","btnRevive","btnMenu2","btnEvo","btnEvoClose","btnMute","btnMusic","btnPause","btnResume","btnRestart","btnMenu",
  "btnStats","btnStatsClose","toast","mischips",
  "milefill","milelabel","banner","bestTitle","mascot","trophy","statCombo","statMerges","statDisc","statMis",
  "stGames","stMerges","stCombo","stBest","stDisc","stMis","stFav","topTiers","themeRow","themeLabel",
@@ -2080,6 +2081,8 @@ ui.btnPause.onclick=()=>{ Sfx.click(); if(Game.state==="play")Game.pause(); else
 ui.btnResume.onclick=()=>{ Sfx.click(); Game.resume(); };
 // v4: restart from pause runs the normal game-over flow
 ui.btnRestart.onclick=()=>{ Sfx.click(); ui.ovPause.classList.add("hide"); Game.state="play"; Game.gameOver(); };
+// v36: back to title menu from pause (Ivan: no había forma de volver al menú)
+ui.btnMenu.onclick=()=>{ Sfx.click(); ui.ovPause.classList.add("hide"); Game.state="how"; ui.ovHow.classList.remove("hide"); };
 ui.btnStats.onclick=()=>{ Sfx.click(); renderStats(); ui.ovStats.classList.remove("hide"); };
 ui.btnStatsClose.onclick=()=>{ Sfx.click(); ui.ovStats.classList.add("hide"); };
 window.addEventListener("resize",fitCanvas);
