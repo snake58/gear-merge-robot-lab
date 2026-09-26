@@ -62,7 +62,7 @@ window.Portal = (function () {
     }
   };
 })();
-/* GEAR MERGE BUILD v34 */
+/* GEAR MERGE BUILD v35 */
 </script>
 <style>
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -1563,14 +1563,19 @@ function renderAch(){
 /* ================= v11: ANIMATED ONBOARDING (first run) =================
    Scripted mini-canvas loop: aim -> drop -> merge. Purely presentational. */
 const Tut={
-  iv:0, t0:0,
+  iv:0, t0:0, to:0,
   open(){
     ui.ovTut.classList.remove("hide");
     this.t0=performance.now();
     this.iv=setInterval(()=>this.tick(),50);
+    // v35: auto-dismiss onboarding after 5s so gameplay starts promptly
+    // (portal QA measures load time until gameplay start; the game itself loads in ~2.5s)
+    if(this.to) clearTimeout(this.to);
+    this.to=setTimeout(()=>{ this.to=0; this.close(); },5000);
   },
   close(){
     if(this.iv) clearInterval(this.iv); this.iv=0;
+    if(this.to){ clearTimeout(this.to); this.to=0; }
     ui.ovTut.classList.add("hide");
     lsSet("seenTut","1"); try{ Store.set("seenTut","1"); }catch(e){}
   },
@@ -1721,9 +1726,9 @@ function render(dt){
     // next piece: ghost-style preview
     gx.fillStyle="rgba(255,255,255,.55)"; gx.font="700 11px "+FONT; gx.textAlign="right";
     gx.fillText("NEXT",BOX.r-4,26);
-    // v34: visible version stamp — bottom-left corner (build.py reemplaza v34)
+    // v34: visible version stamp — bottom-left corner (build.py reemplaza v35)
     gx.textAlign="left"; gx.fillStyle="rgba(255,255,255,.35)"; gx.font="700 11px "+FONT;
-    gx.fillText("v34",BOX.l+2,794);
+    gx.fillText("v35",BOX.l+2,794);
     // v22: assist-mode indicator
     if(Game.assist){ gx.textAlign="left"; gx.fillStyle="#7dd3c0"; gx.font="900 12px "+FONT;
       gx.fillText("🤖 ASSIST",BOX.l+6,24); gx.textAlign="right"; }
