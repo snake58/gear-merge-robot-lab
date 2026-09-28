@@ -9,7 +9,7 @@
 <script>
 /* Portal: none (itch.io / standalone).
    Sin SDK: el juego corre con localStorage y sin anuncios. */
-/* GEAR MERGE BUILD v37 */
+/* GEAR MERGE BUILD v39 */
 </script>
 <style>
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -346,6 +346,7 @@ const A11y={
   apply(){
     if(!ORIG_PAIRS) ORIG_PAIRS=TIERS.map(T=>T.c.slice());
     TIERS.forEach((T,i)=>{ T.c=(this.cb?CB_PAIRS:ORIG_PAIRS)[i].slice(); });
+    spritesDirty=true;   // v39: tier colors changed -> rebake piece sprites
     try{ document.documentElement.classList.toggle("rm",this.rm); }catch(e){}
     renderA11yLabels();
   },
@@ -616,58 +617,116 @@ function rrect(g,x,y,w,h,rad){
   g.closePath();
 }
 function metal(g,r,c0,c1){
-  const gr = g.createRadialGradient(-r*0.35,-r*0.4,r*0.08,0,0,r*1.15);
-  gr.addColorStop(0,c0); gr.addColorStop(1,c1);
+  // premium metal: hot specular core -> base color -> deep edge
+  const gr = g.createRadialGradient(-r*0.38,-r*0.42,r*0.06,0,0,r*1.18);
+  gr.addColorStop(0,"rgba(255,255,255,.5)");
+  gr.addColorStop(0.28,c0);
+  gr.addColorStop(1,c1);
   g.fillStyle = gr;
 }
 function shade(g,r){
-  g.strokeStyle = "rgba(0,0,0,.35)"; g.lineWidth = Math.max(2,r*0.07); g.stroke();
-  const hg = g.createLinearGradient(0,-r,0,r);
-  hg.addColorStop(0,"rgba(255,255,255,.35)"); hg.addColorStop(0.45,"rgba(255,255,255,0)");
+  // deep edge definition
+  g.strokeStyle = "rgba(0,0,0,.45)"; g.lineWidth = Math.max(2,r*0.07); g.stroke();
+  // diagonal gloss sweep (premium sheen)
+  const hg = g.createLinearGradient(-r,-r,r*0.7,r*0.7);
+  hg.addColorStop(0,"rgba(255,255,255,.5)");
+  hg.addColorStop(0.35,"rgba(255,255,255,.12)");
+  hg.addColorStop(0.62,"rgba(255,255,255,0)");
   g.fillStyle = hg; g.fill();
+  // cool rim light from bottom-right for depth
+  const rl = g.createLinearGradient(0,r*0.1,0,r);
+  rl.addColorStop(0,"rgba(140,200,255,0)");
+  rl.addColorStop(1,"rgba(140,200,255,.26)");
+  g.fillStyle = rl; g.fill();
   // specular glint (upper-left) for a metallic sheen
-  g.fillStyle = "rgba(255,255,255,.5)";
-  g.beginPath(); g.ellipse(-r*0.34,-r*0.42,r*0.2,r*0.11,-0.6,0,7); g.fill();
+  g.fillStyle = "rgba(255,255,255,.75)";
+  g.beginPath(); g.ellipse(-r*0.34,-r*0.44,r*0.2,r*0.1,-0.6,0,7); g.fill();
 }
 
+/* v39: pre-rendered piece sprites — each tier's art is baked once to an offscreen
+   canvas (3x supersampled: still 2x+ oversampled vs the largest on-screen size at
+   DPR 2, so zero blur on 1080p+) so the hot render loop is pure drawImage: no
+   per-frame path tracing, gradient creation or shadowBlur per piece.
+   Palette-aware: the cache is rebuilt when the colorblind palette swaps tier colors. */
+const SPR_SS=3, SPR_PAD=1.7;
+let partSprites=null, spritesDirty=true;
+function bakeSprites(){
+  partSprites=[];
+  for(let t=0;t<TIERS.length;t++){
+    const rt=TIERS[t].r, half=rt*SPR_PAD, px=Math.max(2,Math.ceil(half*2*SPR_SS));
+    const cv=document.createElement("canvas"); cv.width=px; cv.height=px;
+    const g=cv.getContext("2d");
+    if(g){ g.scale(SPR_SS,SPR_SS); g.translate(half,half); drawPartRaw(g,t,0,0,rt,0); }
+    partSprites[t]={cv:cv,half:half};
+  }
+  spritesDirty=false;
+}
 function drawPart(g,t,x,y,r,ang){
+  if(spritesDirty||!partSprites) bakeSprites();
+  const sp=partSprites[t]; if(!sp) return;
+  const k=r/TIERS[t].r, hh=sp.half*k;
+  g.save(); g.translate(x,y); if(ang) g.rotate(ang);
+  g.drawImage(sp.cv,-hh,-hh,hh*2,hh*2);
+  g.restore();
+}
+
+function drawPartRaw(g,t,x,y,r,ang){
   const T = TIERS[t];
   g.save(); g.translate(x,y); g.rotate(ang||0);
   metal(g,r,T.c[0],T.c[1]);
   switch(t){
     case 0: { // Screw
       g.beginPath(); g.arc(0,0,r,0,7); g.fill(); shade(g,r);
-      g.strokeStyle="rgba(0,0,0,.5)"; g.lineWidth=r*0.22;
-      g.beginPath(); g.moveTo(-r*0.55,0); g.lineTo(r*0.55,0); g.stroke();
+      g.strokeStyle="rgba(0,0,0,.5)"; g.lineWidth=r*0.2; g.lineCap="round";
+      g.beginPath(); g.moveTo(-r*0.5,0); g.lineTo(r*0.5,0); g.stroke();
+      g.beginPath(); g.moveTo(0,-r*0.5); g.lineTo(0,r*0.5); g.stroke();
+      g.fillStyle="rgba(255,255,255,.5)";
+      g.beginPath(); g.arc(0,0,r*0.12,0,7); g.fill();
       break; }
     case 1: { // Nut
       hexPath(g,r); g.fill(); shade(g,r);
       g.fillStyle="rgba(0,0,0,.45)";
       g.beginPath(); g.arc(0,0,r*0.42,0,7); g.fill();
+      // inner bevel: light arc on the hole's upper edge
+      g.strokeStyle="rgba(255,255,255,.4)"; g.lineWidth=r*0.07; g.lineCap="round";
+      g.beginPath(); g.arc(0,0,r*0.42,Math.PI*1.05,Math.PI*1.75); g.stroke();
       break; }
     case 2: case 5: case 8: { // Gears S/M/L
       const teeth = t===2?8:(t===5?10:12);
       gearPath(g,r*0.86,teeth,r*0.2); g.fill(); shade(g,r);
+      // tooth edge highlight for a machined look
+      g.strokeStyle="rgba(255,255,255,.28)"; g.lineWidth=Math.max(1.5,r*0.045);
+      gearPath(g,r*0.86,teeth,r*0.2); g.stroke();
       g.fillStyle="rgba(0,0,0,.4)";
       g.beginPath(); g.arc(0,0,r*0.34,0,7); g.fill();
+      g.strokeStyle="rgba(255,255,255,.35)"; g.lineWidth=r*0.05;
+      g.beginPath(); g.arc(0,0,r*0.34,Math.PI*1.05,Math.PI*1.8); g.stroke();
       g.fillStyle=T.c[0];
       g.beginPath(); g.arc(0,0,r*0.16,0,7); g.fill();
       break; }
     case 3: { // Spring
       g.beginPath(); g.arc(0,0,r,0,7); g.fill(); shade(g,r);
-      g.strokeStyle="rgba(0,0,0,.55)"; g.lineWidth=r*0.16; g.lineCap="round";
-      g.beginPath();
-      const coils=4, w=r*1.2;
-      for(let i=0;i<=coils*2;i++){
-        const px=-w/2+(i/(coils*2))*w, py=(i%2===0?-1:1)*r*0.42;
-        if(i===0) g.moveTo(px,py); else g.lineTo(px,py);
-      }
-      g.stroke();
+      // coil: dark wire base + bright crest = metallic spring wire
+      g.lineCap="round";
+      const coilPath=()=>{ g.beginPath();
+        const coils=4, w=r*1.2;
+        for(let i=0;i<=coils*2;i++){
+          const px=-w/2+(i/(coils*2))*w, py=(i%2===0?-1:1)*r*0.42;
+          if(i===0) g.moveTo(px,py); else g.lineTo(px,py);
+        } };
+      g.strokeStyle="rgba(0,0,0,.55)"; g.lineWidth=r*0.18; coilPath(); g.stroke();
+      g.strokeStyle="rgba(255,255,255,.5)"; g.lineWidth=r*0.07;
+      g.save(); g.translate(-r*0.03,-r*0.05); coilPath(); g.stroke(); g.restore();
       break; }
     case 4: { // Battery
       rrect(g,-r*0.72,-r,r*1.44,r*2,r*0.3); g.fill(); shade(g,r);
+      // glossy vertical band
+      g.fillStyle="rgba(255,255,255,.22)";
+      rrect(g,-r*0.52,-r*0.86,r*0.3,r*1.72,r*0.15); g.fill();
       g.fillStyle=T.c[0];
       g.fillRect(-r*0.22,-r*1.22,r*0.44,r*0.3);
+      g.fillStyle="rgba(255,255,255,.45)";
+      g.fillRect(-r*0.22,-r*1.22,r*0.14,r*0.3);
       g.fillStyle="rgba(0,0,0,.55)"; g.font=`900 ${r*0.9}px sans-serif`;
       g.textAlign="center"; g.textBaseline="middle"; g.fillText("+",0,r*0.05);
       break; }
@@ -678,10 +737,15 @@ function drawPart(g,t,x,y,r,ang){
         g.beginPath(); g.moveTo(i*r*0.5,r*0.95); g.lineTo(i*r*0.5,r*1.25); g.stroke();
       }
       rrect(g,-r*0.95,-r*0.95,r*1.9,r*1.9,r*0.25); g.fill(); shade(g,r);
-      g.strokeStyle="rgba(255,255,255,.5)"; g.lineWidth=r*0.07;
+      // glowing circuit trace
+      g.save(); g.shadowColor="#38e1ff"; g.shadowBlur=r*0.3;
+      g.strokeStyle="rgba(190,245,255,.95)"; g.lineWidth=r*0.08; g.lineCap="round";
       g.beginPath(); g.moveTo(-r*0.5,0); g.lineTo(0,-r*0.5); g.lineTo(r*0.5,0); g.stroke();
+      g.restore();
       g.fillStyle="rgba(0,0,0,.5)";
       g.beginPath(); g.arc(0,0,r*0.2,0,7); g.fill();
+      g.fillStyle="rgba(56,225,255,.9)";
+      g.beginPath(); g.arc(0,0,r*0.09,0,7); g.fill();
       break; }
     case 7: { // Motor
       for(let i=0;i<6;i++){
@@ -692,8 +756,12 @@ function drawPart(g,t,x,y,r,ang){
       g.beginPath(); g.arc(0,0,r*0.82,0,7); g.fill(); shade(g,r);
       g.fillStyle="rgba(0,0,0,.45)";
       g.beginPath(); g.arc(0,0,r*0.3,0,7); g.fill();
+      g.strokeStyle="rgba(255,255,255,.3)"; g.lineWidth=r*0.04;
+      g.beginPath(); g.arc(0,0,r*0.3,Math.PI*1.05,Math.PI*1.75); g.stroke();
       g.fillStyle=T.c[0];
       g.beginPath(); g.arc(0,0,r*0.12,0,7); g.fill();
+      g.strokeStyle="rgba(0,0,0,.55)"; g.lineWidth=r*0.045; g.lineCap="round";
+      g.beginPath(); g.moveTo(-r*0.07,0); g.lineTo(r*0.07,0); g.stroke();
       break; }
     case 9: { // Robo Arm
       g.lineCap="round";
@@ -707,33 +775,55 @@ function drawPart(g,t,x,y,r,ang){
       g.strokeStyle=T.c[1]; g.lineWidth=r*0.16;
       g.beginPath(); g.moveTo(r*0.1,-r*0.15); g.lineTo(r*0.62,-r*0.5); g.stroke();
       g.beginPath(); g.moveTo(r*0.1,-r*0.15); g.lineTo(r*0.55,-r*0.62); g.stroke();
+      // bolt highlights on the joints
+      g.fillStyle="rgba(255,255,255,.55)";
+      g.beginPath(); g.arc(-r*0.63,r*0.37,r*0.09,0,7); g.fill();
+      g.beginPath(); g.arc(r*0.02,-r*0.23,r*0.08,0,7); g.fill();
       break; }
     case 10: { // Robo Head
       rrect(g,-r*0.85,-r*0.8,r*1.7,r*1.6,r*0.4); g.fill(); shade(g,r);
       g.strokeStyle=T.c[1]; g.lineWidth=r*0.1;
       g.beginPath(); g.moveTo(0,-r*0.8); g.lineTo(0,-r*1.15); g.stroke();
+      // antenna tip glow
+      g.save(); g.shadowColor="#ff5d5d"; g.shadowBlur=r*0.35;
       g.fillStyle="#ff5d5d";
       g.beginPath(); g.arc(0,-r*1.2,r*0.12,0,7); g.fill();
+      g.restore();
+      // dark visor with glowing cyan eyes
       g.fillStyle="#0b1020";
       rrect(g,-r*0.6,-r*0.32,r*1.2,r*0.5,r*0.2); g.fill();
+      g.save(); g.shadowColor="#38e1ff"; g.shadowBlur=r*0.35;
       g.fillStyle="#38e1ff";
       g.beginPath(); g.arc(-r*0.3,-r*0.07,r*0.13,0,7); g.fill();
       g.beginPath(); g.arc(r*0.3,-r*0.07,r*0.13,0,7); g.fill();
+      g.restore();
+      g.fillStyle="rgba(255,255,255,.85)";
+      g.beginPath(); g.arc(-r*0.34,-r*0.11,r*0.045,0,7); g.fill();
+      g.beginPath(); g.arc(r*0.26,-r*0.11,r*0.045,0,7); g.fill();
       break; }
     case 11: { // ROBOT (final)
       rrect(g,-r*0.62,-r*0.1,r*1.24,r*1.05,r*0.3); g.fill(); shade(g,r);
-      g.fillStyle="rgba(56,225,255,.9)";
+      // glowing chest core
+      g.save(); g.shadowColor="#38e1ff"; g.shadowBlur=r*0.4;
+      g.fillStyle="rgba(56,225,255,.95)";
       g.beginPath(); g.arc(0,r*0.42,r*0.2,0,7); g.fill();
+      g.restore();
+      g.fillStyle="rgba(255,255,255,.8)";
+      g.beginPath(); g.arc(-r*0.06,r*0.36,r*0.06,0,7); g.fill();
       rrect(g,-r*0.5,-r*0.95,r,r*0.85,r*0.25); g.fill(); shade(g,r*0.7);
       g.fillStyle="#0b1020";
       g.beginPath(); g.arc(-r*0.22,-r*0.55,r*0.11,0,7); g.fill();
       g.beginPath(); g.arc(r*0.22,-r*0.55,r*0.11,0,7); g.fill();
+      g.save(); g.shadowColor="#38e1ff"; g.shadowBlur=r*0.3;
       g.fillStyle="#38e1ff";
       g.beginPath(); g.arc(-r*0.22,-r*0.55,r*0.05,0,7); g.fill();
       g.beginPath(); g.arc(r*0.22,-r*0.55,r*0.05,0,7); g.fill();
+      g.restore();
       g.strokeStyle=T.c[1]; g.lineWidth=r*0.12; g.lineCap="round";
       g.beginPath(); g.moveTo(0,-r*0.95); g.lineTo(0,-r*1.18); g.stroke();
+      g.save(); g.shadowColor="#ff5d5d"; g.shadowBlur=r*0.3;
       g.fillStyle="#ff5d5d"; g.beginPath(); g.arc(0,-r*1.22,r*0.07,0,7); g.fill();
+      g.restore();
       g.strokeStyle=T.c[1]; g.lineWidth=r*0.2;
       g.beginPath(); g.moveTo(-r*0.62,r*0.25); g.lineTo(-r*0.95,r*0.6); g.stroke();
       g.beginPath(); g.moveTo(r*0.62,r*0.25); g.lineTo(r*0.95,r*0.6); g.stroke();
@@ -1559,11 +1649,40 @@ const Tut={
     }
   }
 };
+/* v39: static-scene gradient cache — box backdrop, wall stroke, top light, aim
+   beam and vignette gradients are baked once per theme instead of re-created
+   every frame. Geometry never changes (BOX consts), so the theme name is the
+   only cache key. The animated wash alpha is preserved via per-frame globalAlpha. */
+let gradCache=null, gradTheme="";
+function staticGrads(){
+  if(gradCache&&gradTheme===Theme.name) return gradCache;
+  const bg=gx.createLinearGradient(0,BOX.top,0,BOX.bot);
+  bg.addColorStop(0,Theme.c.box0); bg.addColorStop(1,Theme.c.box1);
+  const wg=gx.createLinearGradient(0,BOX.top,0,BOX.bot);
+  wg.addColorStop(0,"rgba(210,230,255,.65)");
+  wg.addColorStop(0.4,"rgba(150,180,230,.3)");
+  wg.addColorStop(1,"rgba(150,180,230,.5)");
+  const tg=gx.createRadialGradient(W/2,BOX.top,10,W/2,BOX.top,280);
+  tg.addColorStop(0,"rgba(120,190,255,.10)"); tg.addColorStop(1,"rgba(120,190,255,0)");
+  const ag=gx.createLinearGradient(0,DROP_Y,0,BOX.bot);
+  ag.addColorStop(0,"rgba(255,255,255,.25)"); ag.addColorStop(1,"rgba(255,255,255,0)");
+  const wash=gx.createLinearGradient(0,0,0,H);
+  wash.addColorStop(0,"rgba("+Theme.c.wash+",0.045)");
+  wash.addColorStop(0.6,"rgba(0,0,0,0)");
+  wash.addColorStop(1,"rgba(10,6,24,0.10)");
+  const vg=gx.createRadialGradient(W/2,H/2,H*0.32,W/2,H/2,H*0.72);
+  vg.addColorStop(0,"rgba(4,6,14,0)"); vg.addColorStop(1,"rgba(4,6,14,.5)");
+  gradCache={bg:bg,wg:wg,tg:tg,ag:ag,wash:wash,vg:vg}; gradTheme=Theme.name;
+  return gradCache;
+}
 /* ================= RENDER ================= */
 function fitCanvas(){
   const st=document.getElementById("stage");
   const r=st.getBoundingClientRect();
-  DPR=Math.min(2,window.devicePixelRatio||1);
+  // v39: DPR floor of 2 on 1080p+ screens — 1x desktop displays get 2x SSAA,
+  // high-DPI phones keep their native ratio (capped at 2 for fill-rate).
+  const scrMax=(typeof screen!=="undefined")?Math.max(screen.width||0,screen.height||0):0;
+  DPR=Math.min(2,Math.max(window.devicePixelRatio||1,scrMax>=1080?2:1));
   cv.width=Math.max(2,r.width*DPR); cv.height=Math.max(2,r.height*DPR);
   // logical 480x800 scaled to fit height
   Game.viewScale = cv.height/DPR/H;
@@ -1618,9 +1737,8 @@ function render(dt){
   gx.globalAlpha=1;
 
   // workshop backdrop inside box
-  const bg=gx.createLinearGradient(0,BOX.top,0,BOX.bot);
-  bg.addColorStop(0,Theme.c.box0); bg.addColorStop(1,Theme.c.box1);   // v6: themed
-  gx.fillStyle=bg;
+  const SG=staticGrads();   // v39: cached static gradients
+  gx.fillStyle=SG.bg;
   gx.beginPath(); gx.roundRect(BOX.l-8,BOX.top-8,(BOX.r-BOX.l)+16,(BOX.bot-BOX.top)+16,18); gx.fill();
   // grid
   gx.strokeStyle=Theme.c.grid; gx.lineWidth=1;   // v6: themed grid
@@ -1641,11 +1759,13 @@ function render(dt){
   gx.beginPath(); gx.moveTo(BOX.l,DANGER_Y); gx.lineTo(BOX.r,DANGER_Y); gx.stroke();
   gx.setLineDash([]); gx.shadowBlur=0;
 
-  // container walls
-  gx.strokeStyle="rgba(150,180,230,.35)"; gx.lineWidth=6; gx.lineCap="round";
+  // container walls: brushed-metal gradient stroke
+  gx.strokeStyle=SG.wg; gx.lineWidth=6; gx.lineCap="round";
   gx.beginPath(); gx.moveTo(BOX.l-8,BOX.top-4); gx.lineTo(BOX.l-8,BOX.bot+2); gx.stroke();
   gx.beginPath(); gx.moveTo(BOX.r+8,BOX.top-4); gx.lineTo(BOX.r+8,BOX.bot+2); gx.stroke();
   gx.beginPath(); gx.moveTo(BOX.l-8,BOX.bot+2); gx.lineTo(BOX.r+8,BOX.bot+2); gx.stroke();
+  // soft top-light glow inside the box
+  gx.fillStyle=SG.tg; gx.fillRect(BOX.l-8,BOX.top-8,(BOX.r-BOX.l)+16,320);
   // v7: FEVER edge glow + countdown
   if(Game.feverT>0){
     const fa=0.5+0.5*Math.sin(Game.bgTime*8);
@@ -1662,21 +1782,21 @@ function render(dt){
   if(Game.state==="play"){
     const t=Game.cur, r=TIERS[t].r;
     const ax=Math.max(BOX.l+r+2,Math.min(BOX.r-r-2,Game.aimX));
-    // smooth aim line: fading gradient + marching dashes
-    const ag=gx.createLinearGradient(0,DROP_Y,0,BOX.bot);
-    ag.addColorStop(0,"rgba(255,255,255,.32)"); ag.addColorStop(1,"rgba(255,255,255,0)");
-    gx.strokeStyle=ag; gx.lineWidth=3; gx.setLineDash([7,9]);
+    // smooth aim line: fading gradient + marching dashes (v39: additive glow beam)
+    gx.save(); gx.globalCompositeOperation="lighter";
+    gx.strokeStyle=SG.ag; gx.lineWidth=3; gx.setLineDash([7,9]);
     gx.lineDashOffset=-Game.bgTime*46;
     gx.beginPath(); gx.moveTo(ax,DROP_Y+r); gx.lineTo(ax,BOX.bot-8); gx.stroke();
+    gx.restore();
     gx.setLineDash([]); gx.lineDashOffset=0;
     const bob=Math.sin(Game.time*3)*3;
     drawPart(gx,t,ax,DROP_Y+bob,r,Math.sin(Game.time*1.5)*0.15);
     // next piece: ghost-style preview
     gx.fillStyle="rgba(255,255,255,.55)"; gx.font="700 11px "+FONT; gx.textAlign="right";
     gx.fillText("NEXT",BOX.r-4,26);
-    // v34: visible version stamp — bottom-left corner (build.py reemplaza v37)
+    // v34: visible version stamp — bottom-left corner (build.py reemplaza v39)
     gx.textAlign="left"; gx.fillStyle="rgba(255,255,255,.35)"; gx.font="700 11px "+FONT;
-    gx.fillText("v37",BOX.l+2,794);
+    gx.fillText("v39",BOX.l+2,794);
     // v22: assist-mode indicator
     if(Game.assist){ gx.textAlign="left"; gx.fillStyle="#7dd3c0"; gx.font="900 12px "+FONT;
       gx.fillText("🤖 ASSIST",BOX.l+6,24); gx.textAlign="right"; }
@@ -1687,7 +1807,8 @@ function render(dt){
     gx.beginPath(); gx.arc(BOX.r-30,52,27,0,7); gx.stroke(); gx.setLineDash([]);
     // v3: combo badge pops with a warm glow once combo >= 3
     if(Game.combo>=2 && Game.comboT>0){
-      const sc=1+0.5*Game.comboPop, txt="COMBO x"+Game.combo;
+      const cpe=1-Math.pow(1-Game.comboPop,3);   // v39: easeOutCubic pop (snappy, no jank)
+      const sc=1+0.5*cpe, txt="COMBO x"+Game.combo;
       gx.save(); gx.translate(W/2,38); gx.scale(sc,sc);
       if(Game.combo>=3){ gx.shadowColor="#ffb020"; gx.shadowBlur=18; }
       gx.font="900 20px "+FONT; gx.textAlign="center";
@@ -1748,14 +1869,16 @@ function render(dt){
   // particles, rings + score popups
   for(const p of Game.parts){
     if(p.ring){
-      // v3: gradient merge ring (bright core -> transparent edge)
+      // v3: gradient merge ring (bright core -> transparent edge); v39: additive glow
       const a=Math.max(0,p.life/p.max);
-      const rg=gx.createRadialGradient(p.x,p.y,Math.max(1,p.rr-8),p.x,p.y,p.rr+10);
+      const rg=gx.createRadialGradient(p.x,p.y,Math.max(1,p.rr-8),p.x,p.y,Math.max(12,p.rr+10));
       rg.addColorStop(0,"rgba("+p.col+",0)");
       rg.addColorStop(0.72,"rgba("+p.col+","+(a*0.85).toFixed(3)+")");
       rg.addColorStop(1,"rgba("+p.col+",0)");
+      gx.save(); gx.globalCompositeOperation="lighter";
       gx.fillStyle=rg;
-      gx.beginPath(); gx.arc(p.x,p.y,p.rr+10,0,7); gx.fill();
+      gx.beginPath(); gx.arc(p.x,p.y,Math.max(12,p.rr+10),0,7); gx.fill();
+      gx.restore();
     } else if(p.conf){
       // v3: confetti rect
       gx.save(); gx.translate(p.px,p.py); gx.rotate(p.rot);
@@ -1777,25 +1900,23 @@ function render(dt){
     } else {
       gx.globalAlpha=Math.max(0,Math.min(1,p.life/0.5));
       gx.fillStyle=p.col;
-      if(p.gear){                    // gear-shaped spark
-        gx.save(); gx.translate(p.px,p.py); gx.rotate(p.rot);
+      if(p.gear){                    // gear-shaped spark (additive glow)
+        gx.save(); gx.globalCompositeOperation="lighter";
+        gx.translate(p.px,p.py); gx.rotate(p.rot);
         gearPath(gx,p.r,6,p.r*0.4); gx.fill();
         gx.restore();
-      } else {
+      } else {                         // round spark (additive glow)
+        gx.save(); gx.globalCompositeOperation="lighter";
         gx.beginPath(); gx.arc(p.px,p.py,p.r,0,7); gx.fill();
+        gx.restore();
       }
       gx.globalAlpha=1;
     }
   }
   // v3: gentle animated gradient wash + vignette for depth
-  const wash=gx.createLinearGradient(0,0,0,H);
-  wash.addColorStop(0,"rgba("+Theme.c.wash+","+(0.03+0.015*Math.sin(Game.bgTime*0.7)).toFixed(3)+")");  // v6: themed
-  wash.addColorStop(0.6,"rgba(0,0,0,0)");
-  wash.addColorStop(1,"rgba(10,6,24,0.10)");
-  gx.fillStyle=wash; gx.fillRect(0,0,W,H);
-  const vg=gx.createRadialGradient(W/2,H/2,H*0.32,W/2,H/2,H*0.72);
-  vg.addColorStop(0,"rgba(4,6,14,0)"); vg.addColorStop(1,"rgba(4,6,14,.5)");
-  gx.fillStyle=vg; gx.fillRect(0,0,W,H);
+  const wa=(0.03+0.015*Math.sin(Game.bgTime*0.7))/0.045;   // v39: cached wash, animated alpha preserved
+  gx.save(); gx.globalAlpha=wa; gx.fillStyle=SG.wash; gx.fillRect(0,0,W,H); gx.restore();
+  gx.fillStyle=SG.vg; gx.fillRect(0,0,W,H);
   gx.restore();
   if(Game.state==="how") drawMascot();   // v3: animated title mascot
 }
@@ -1819,7 +1940,7 @@ function updateParts(dt){
         if(p.gear) p.rot+=p.vr*dt;
       }
     }
-    if(p.y!==undefined) p.y+=p.vy*dt;
+    if(p.y!==undefined && p.vy!==undefined) p.y+=p.vy*dt;   // v38: rings have no vy (avoid NaN)
     if(p.pop>0) p.pop=Math.max(0,p.pop-dt*2.8);
     if(p.ring) p.rr=p.r0+(p.r1-p.r0)*(1-p.life/p.max);
   }
