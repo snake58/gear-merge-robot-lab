@@ -9,7 +9,7 @@
 <script>
 /* Portal: none (itch.io / standalone).
    Sin SDK: el juego corre con localStorage y sin anuncios. */
-/* GEAR MERGE BUILD v39 */
+/* GEAR MERGE BUILD v40 */
 </script>
 <style>
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -432,19 +432,31 @@ const MAX_TIER = TIERS.length - 1;
    layers never clip), snappy attack/decay envelopes, filtered-noise layer. */
 const Sfx = {
   ctx:null, master:null, muted:false, adMuted:false,
-  setMuted(m){ this.adMuted=!!m; },
+  setMuted(m){ this.adMuted=!!m; this.applyMute(); },
+  // v40: mute suspends the whole audio graph; unmute resumes it.
+  // Verified: no node keeps sounding while muted (SFX + music share this ctx).
+  applyMute(){
+    if(!this.ctx) return;
+    try{
+      if(this.muted||this.adMuted){ if(this.ctx.state==="running") this.ctx.suspend(); }
+      else if(this.ctx.state==="suspended") this.ctx.resume();
+    }catch(e){}
+  },
   // v26: bulletproof iOS unlock — init + resume + silent-buffer nudge,
   // safe to call from any user-gesture handler.
+  // v40: resume goes through applyMute (a muted ctx stays suspended);
+  // first user gesture also starts the music loop.
   unlock(){
     this.init();
     if(this.ctx){
-      try{ if(this.ctx.state==="suspended") this.ctx.resume(); }catch(e){}
+      this.applyMute();
       try{
         const b=this.ctx.createBuffer(1,1,this.ctx.sampleRate);
         const s=this.ctx.createBufferSource(); s.buffer=b;
         s.connect(this.ctx.destination); s.start(0);
       }catch(e){}
     }
+    if(typeof Mus!=="undefined") Mus.start();
   },
   init(){
     if (this.ctx) return;
@@ -489,7 +501,40 @@ const Sfx = {
       src.start(t);
     }catch(e){}
   },
-  drop(){ this.tone(170,80,0.1,"sine",0.25); this.noise(0.05,0.09,0,900); },   // v12: woody thock
+  drop(){ // v40: metallic thock — woody knock + inharmonic metal partials
+    this.tone(170,80,0.1,"sine",0.25); this.noise(0.05,0.09,0,900);
+    this.metal(392,0.07,0,0.09); },                            // metal "tink" tail
+  // v40: metallic partials (2.42x / 3.91x / 5.43x) with fast decay — one cheap call
+  metal(f0,vol,when,dur){
+    if (!this.ctx || this.muted || this.adMuted) return;
+    const ds=dur||0.06, vs=[1,0.55,0.32], rs=[2.42,3.91,5.43];
+    for(let i=0;i<3;i++)
+      this.tone(f0*rs[i],f0*rs[i]*0.96,ds*(1-i*0.22),"triangle",vol*vs[i],(when||0)+i*0.008);
+  },
+  // v40: band-swept noise — whooshes, risers
+  whoosh(dur,vol,when,f0,f1){
+    if (!this.ctx || this.muted || this.adMuted) return;
+    try{
+      const t=this.ctx.currentTime+(when||0);
+      const len=Math.max(1,Math.floor(dur*this.ctx.sampleRate));
+      const buf=this.ctx.createBuffer(1,len,this.ctx.sampleRate);
+      const d=buf.getChannelData(0);
+      for(let i=0;i<len;i++){ const k=i/len; d[i]=(Math.random()*2-1)*Math.sin(Math.PI*k); }
+      const src=this.ctx.createBufferSource(); src.buffer=buf;
+      const f=this.ctx.createBiquadFilter(); f.type="bandpass"; f.Q.value=1.1;
+      f.frequency.setValueAtTime(Math.max(40,f0||400),t);
+      f.frequency.exponentialRampToValueAtTime(Math.max(40,f1||3600),t+dur);
+      const g=this.ctx.createGain(); g.gain.value=vol||0.12;
+      src.connect(f); f.connect(g); g.connect(this.master);
+      src.start(t);
+    }catch(e){}
+  },
+  // v40: sub-bass thump — weight for big merges (Motor / Robo Arm / Robo Head / ROBOT)
+  thump(){
+    this.tone(95,36,0.42,"sine",0.42);
+    this.tone(62,30,0.5,"sine",0.3,0.02);
+    this.noise(0.16,0.13,0,220);
+  },
   bounce(v){ if(v>260){ const n=performance.now(); if(n-(this._bl||0)<60)return; this._bl=n;
     this.tone(220,140,0.06,"triangle",Math.min(0.12,v/6000)); this.noise(0.03,0.04,0,2500); } },
   merge(tier,combo){
@@ -498,10 +543,14 @@ const Sfx = {
     this.tone(base, base*1.6, 0.14, "sine", 0.3);
     this.tone(base*2, base*2.6, 0.1, "triangle", 0.12, 0.03);
     this.tone(base*3, base*3.4, 0.08, "sine", 0.07, 0.05);   // v12: sparkle layer
+    this.whoosh(0.28,0.11,0,500,3800);                       // v40: airy whoosh under the chime
+    if(tier>=7) this.thump();                                 // v40: sub thump on Motor+ merges
     if (combo>1) for(let i=0;i<Math.min(combo,5);i++)
       this.tone(base*(1.5+i*0.25), base*(1.8+i*0.25), 0.09, "sine", 0.16, 0.08+i*0.06);
   },
   mega(){ this.tone(220,38,0.45,"sine",0.32); this.noise(0.35,0.18,0,3200);   // v12: sub drop + crash
+    this.whoosh(0.5,0.16,0,300,5200);                        // v40: bigger whoosh
+    this.thump();                                             // v40: extra low-end weight
     [523,659,784,1046,1318].forEach((f,i)=>this.tone(f,f,0.22,"sawtooth",0.14,i*0.09)); },
   // v3: discovery sparkle arpeggio + milestone mini-fanfare
   discover(){ [660,830,990,1320,1568,1980].forEach((f,i)=>this.tone(f,f*1.01,0.14,"triangle",0.13,i*0.06));
@@ -512,22 +561,45 @@ const Sfx = {
     this.tone(98,98,0.6,"sawtooth",0.1,0); this.tone(147,147,0.6,"sawtooth",0.08,0.3); },   // v12: sub pulse
   ach(){ [523,659,784,1046,1318,1568].forEach((f,i)=>this.tone(f,f,0.2,"triangle",0.16,i*0.08));     // v9: achievement fanfare
     this.tone(2093,2093,0.4,"sine",0.08,0.48); },   // v12: shimmer tail
-  perfect(){ [1318,1568,2093].forEach((f,i)=>this.tone(f,f,0.12,"sine",0.2,i*0.05));   // v5: bright perfect ding
-    this.tone(2637,3136,0.18,"sine",0.09,0.15); },   // v12: extra shimmer
+  perfect(){ // v40: brighter layered ding — bell harmonic stack + metal shimmer
+    [1318,1568,2093].forEach((f,i)=>this.tone(f,f,0.12,"sine",0.2,i*0.05));   // v5: bright perfect ding
+    this.tone(2637,3136,0.18,"sine",0.09,0.15);                              // v12: extra shimmer
+    this.tone(2636,2636,0.32,"sine",0.05,0.1);                               // v40: bell overtone tail
+    this.tone(3954,3954,0.24,"sine",0.03,0.14);
+    this.metal(2093,0.045,0.06,0.12); },                                    // v40: metallic sparkle
   close(){ this.tone(880,1320,0.12,"sine",0.16); this.tone(1320,1760,0.1,"sine",0.12,0.06);
     this.noise(0.12,0.08,0,5000); },   // v10: close-call sting
-  over(){ [400,340,280,200,140].forEach((f,i)=>this.tone(f,f*0.94,0.22,"sawtooth",0.12,i*0.13));
-    this.tone(70,35,0.8,"sine",0.25,0.1); },   // v12: low rumble
+  over(){ // v40: heavier grave descent — layered low fall + sub rumble wash
+    [400,340,280,200,140].forEach((f,i)=>this.tone(f,f*0.94,0.22,"sawtooth",0.12,i*0.13));
+    this.tone(70,35,0.8,"sine",0.25,0.1);                                    // v12: low rumble
+    this.tone(110,26,1.15,"sine",0.32,0.05);                                // v40: deeper sub fall
+    this.tone(55,24,1.3,"triangle",0.2,0.12);                                // v40: dark body
+    this.noise(0.7,0.07,0.1,260); },                                        // v40: low rumble wash
   click(){ this.tone(700,500,0.05,"square",0.07); this.noise(0.03,0.05,0,5000); },
   record(){ [523,659,784,1046].forEach((f,i)=>this.tone(f,f,0.18,"triangle",0.18,i*0.1));
     this.tone(1568,2093,0.3,"sine",0.08,0.4); },
-  toggleMute(){ this.muted=!this.muted; return this.muted; }
+  toggleMute(){ this.muted=!this.muted; this.applyMute(); return this.muted; }   // v40: suspend/resume ctx
 };
-/* ================= v13: PROCEDURAL MUSIC (~90 BPM loop, separate toggle) =================
-   Tiny step-sequencer: kick/hats/bass/sparse lead, scheduled with lookahead.
-   Music is independent of SFX mute; both respect ad-mute. */
+/* ================= v40: GENERATIVE LAB-SYNTH MUSIC (replaces the v13 sequencer) =================
+   Generative loop, pure WebAudio, zero audio files — robot-lab synth bed:
+   rolling sub-bass sequence + sparkling 16th arpeggio (pattern rotates per bar) +
+   detuned saw pads on an Am-F-C-G progression + four-on-the-floor kick, hats,
+   metallic clack. Starts at the first user gesture (Sfx.unlock -> Mus.start),
+   fades in/out smoothly (no abrupt cuts), pauses on tab hide and resumes on
+   return, and is silenced by the SFX mute button (ctx suspend) plus the ad mute.
+   Scheduler = setInterval lookahead; zero per-frame cost, ~30 nodes/sec. */
 const Mus={
-  on:true, playing:false, iv:0, step:0, nextT:0,
+  on:true, playing:false, iv:0, step:0, nextT:0, bus:null,
+  // Am - F - C - G lab progression: [root, 3rd, 5th, octave]
+  CH:[[110.00,130.81,164.81,220.00],
+      [ 87.31,110.00,130.81,174.61],
+      [130.81,164.81,196.00,261.63],
+      [ 98.00,123.47,146.83,196.00]],
+  // generative arp patterns, one per bar, cycled
+  ARP:[[0,1,2,3,2,1,2,3,0,1,2,3,2,3,1,2],
+       [3,2,1,0,1,2,3,2,3,2,1,0,2,1,2,3],
+       [0,2,1,3,0,2,3,1,0,2,1,3,2,3,1,0],
+       [1,0,2,1,3,2,1,2,1,0,2,3,1,2,0,1]],
   toggle(){
     this.on=!this.on;
     lsSet("music",this.on?"1":"0"); try{ Store.set("music",this.on?"1":"0"); }catch(e){}
@@ -538,21 +610,37 @@ const Mus={
   start(){
     if(!this.on||this.playing) return;
     Sfx.init(); if(!Sfx.ctx) return;
+    try{
+      if(!this.bus){ this.bus=Sfx.ctx.createGain(); this.bus.gain.value=0; this.bus.connect(Sfx.master); }
+      const t=Sfx.ctx.currentTime, b=this.bus.gain;
+      b.cancelScheduledValues(t);
+      b.setTargetAtTime(0.9,t,0.4);          // v40: smooth fade-in
+    }catch(e){}
     this.playing=true; this.step=0;
-    this.nextT=Sfx.ctx.currentTime+0.1;
+    this.nextT=Sfx.ctx.currentTime+0.15;
     this.iv=setInterval(()=>this.sched(),80);
   },
-  stop(){ this.playing=false; if(this.iv){ clearInterval(this.iv); this.iv=0; } },
+  stop(){
+    if(!this.playing) return;
+    this.playing=false;
+    if(this.iv){ clearInterval(this.iv); this.iv=0; }
+    try{                                       // v40: smooth fade-out instead of an abrupt cut
+      const t=Sfx.ctx.currentTime, b=this.bus.gain;
+      b.cancelScheduledValues(t);
+      b.setTargetAtTime(0.0001,t,0.12);
+    }catch(e){}
+  },
   sched(){
     if(!this.playing||!Sfx.ctx) return;
     if(Sfx.muted||Sfx.adMuted){ this.nextT=Math.max(this.nextT,Sfx.ctx.currentTime+0.1); return; }
-    const SD=60/90/2;   // 8th note at ~90 BPM
+    const ST=60/96/4;   // 16th note at ~96 BPM
     let guard=0;
-    while(this.nextT<Sfx.ctx.currentTime+0.25 && guard++<16){
-      this.playStep(this.step%16,this.nextT);
-      this.nextT+=SD; this.step++;
+    while(this.nextT<Sfx.ctx.currentTime+0.3 && guard++<28){
+      this.playStep(this.step%16,(this.step>>4),this.nextT);
+      this.nextT+=ST; this.step++;
     }
   },
+  out(){ return this.bus||Sfx.master; },   // voices route through the fade bus
   toneAt(f0,f1,dur,type,vol,when){
     try{
       const o=Sfx.ctx.createOscillator(), g=Sfx.ctx.createGain();
@@ -561,7 +649,7 @@ const Mus={
       g.gain.setValueAtTime(0.0001,when);
       g.gain.exponentialRampToValueAtTime(vol,when+0.01);
       g.gain.exponentialRampToValueAtTime(0.0001,when+dur);
-      o.connect(g); g.connect(Sfx.master);
+      o.connect(g); g.connect(this.out());
       o.start(when); o.stop(when+dur+0.05);
     }catch(e){}
   },
@@ -574,17 +662,60 @@ const Mus={
       const src=Sfx.ctx.createBufferSource(); src.buffer=buf;
       const f=Sfx.ctx.createBiquadFilter(); f.type="highpass"; f.frequency.value=fc||6000;
       const g=Sfx.ctx.createGain(); g.gain.value=vol;
-      src.connect(f); f.connect(g); g.connect(Sfx.master);
+      src.connect(f); f.connect(g); g.connect(this.out());
       src.start(when);
     }catch(e){}
   },
-  playStep(s,t){
-    const bass=[110,87.31,130.81,98];                 // A2 F2 C3 G2
-    const lead={0:440,3:523.25,6:587.33,10:659.25,12:523.25};
-    if(s%4===0) this.toneAt(130,42,0.22,"sine",0.5,t);        // kick
-    if(s%2===1) this.noiseAt(0.04,0.06,t,7000);               // hat
-    if(s%4===2) this.toneAt(bass[(s>>2)%4],0,0.3,"triangle",0.16,t);  // bass
-    if(lead[s]!==undefined) this.toneAt(lead[s],0,0.35,"square",0.05,t);  // sparse lead
+  // v40: filtered synth voice — osc through a lowpass with a pluck/swell envelope
+  synthAt(f0,dur,type,vol,when,fc,atk){
+    try{
+      const o=Sfx.ctx.createOscillator(), fl=Sfx.ctx.createBiquadFilter(), g=Sfx.ctx.createGain();
+      o.type=type; o.frequency.setValueAtTime(Math.max(30,f0),when);
+      fl.type="lowpass"; fl.frequency.value=fc||1200; fl.Q.value=0.8;
+      const a=Math.max(0.008,atk||0.01);
+      g.gain.setValueAtTime(0.0001,when);
+      g.gain.exponentialRampToValueAtTime(vol,when+a);
+      g.gain.exponentialRampToValueAtTime(0.0001,when+dur);
+      o.connect(fl); fl.connect(g); g.connect(this.out());
+      o.start(when); o.stop(when+dur+0.05);
+    }catch(e){}
+  },
+  // v40: detuned saw pad chord — two saws ±6 cents per tone, slow attack
+  padAt(ch,when,barDur){
+    try{
+      const fl=Sfx.ctx.createBiquadFilter(); fl.type="lowpass"; fl.frequency.value=760; fl.Q.value=0.5;
+      const g=Sfx.ctx.createGain();
+      g.gain.setValueAtTime(0.0001,when);
+      g.gain.exponentialRampToValueAtTime(0.16,when+1.1);
+      g.gain.setValueAtTime(0.16,when+Math.max(1.2,barDur-0.7));
+      g.gain.exponentialRampToValueAtTime(0.0001,when+barDur);
+      fl.connect(g); g.connect(this.out());
+      for(let i=0;i<3;i++) for(let k=-1;k<=1;k+=2){
+        const o=Sfx.ctx.createOscillator();
+        o.type="sawtooth"; o.frequency.value=ch[i]; o.detune.value=k*6;
+        o.connect(fl); o.start(when); o.stop(when+barDur+0.05);
+      }
+    }catch(e){}
+  },
+  playStep(s,bar,t){
+    const ST=60/96/4, barDur=ST*16;
+    const ch=this.CH[bar%4], root=ch[0];
+    if(s%4===0) this.toneAt(120,40,0.18,"sine",0.45,t);              // kick: lab thump
+    if(s%4===2) this.noiseAt(0.04,0.06,t,8000);                      // hats: offbeat
+    else if(s%2===1) this.noiseAt(0.02,0.022,t,9500);                // hats: ghost 16ths
+    if(s===4||s===12) this.synthAt(2200,0.05,"square",0.04,t,5200);  // metallic clack on 2 & 4
+    // bass: rolling 8ths — octave pop on the "and", 5th variation every 4th bar
+    if(s%2===0){
+      let bf=root;
+      if(s===6||s===14) bf=root*2;
+      else if(bar%4===3&&s===10) bf=root*1.5;
+      this.synthAt(bf,ST*1.7,"sawtooth",0.15,t,430,0.008);
+    }
+    // arp: sparkling 16ths, pattern rotates per bar (generative)
+    const idx=this.ARP[bar%4][s];
+    this.synthAt(ch[idx]*4,ST*1.4,"square",0.032,t,2600,0.005);
+    // pads: chord swell at the top of each bar
+    if(s===0) this.padAt(ch,t,barDur);
   }
 };
 
@@ -850,6 +981,7 @@ const Game = {
   // v2 polish state (all visual-only)
   bgGears: [], bgTraces: [], bgTime: 0,   // ambient background
   dieT: 0, panelShown: false,              // game-over sequence
+  hitStop: 0,                               // v40: micro slow-mo timer (high-tier merges)
   comboPop: 0,                            // combo counter scale-pop
   flashA: 0, flashCol: "255,255,255",      // full-box color flash
   // v3 state (all visual/UI-only)
@@ -867,6 +999,7 @@ const Game = {
     this.score=0; this.combo=0; this.comboT=0;
     this.shake=0; this.overT=0; this.time=0;
     this.dieT=0; this.panelShown=false; this.comboPop=0; this.flashA=0;
+    this.hitStop=0;                                  // v40
     this.reviveUsed=false;                    // v34: rewarded continue por game over
     this.maxCombo=0; this.merges=0; this.wasNewBest=false;
     this.perfects=0;                    // v5
@@ -1174,6 +1307,8 @@ function doMerge(a,b){
     shock(mx,my,nr*2.6,"255,240,170",0.7);
     flash("255,240,180",0.35);
   }
+  // v40: micro slow-mo + punchy shake when creating Robo Head / ROBOT (pure feel, no logic change)
+  if(nt>=10 && !A11y.rm){ Game.hitStop=0.14; Game.shake=Math.max(Game.shake,10); }
   // v4: mission tracking + haptics scaled by tier
   Game.builtTiers[nt]=1;
   Game.tierMerges[nt]=(Game.tierMerges[nt]||0)+1;
@@ -1794,9 +1929,9 @@ function render(dt){
     // next piece: ghost-style preview
     gx.fillStyle="rgba(255,255,255,.55)"; gx.font="700 11px "+FONT; gx.textAlign="right";
     gx.fillText("NEXT",BOX.r-4,26);
-    // v34: visible version stamp — bottom-left corner (build.py reemplaza v39)
+    // v34: visible version stamp — bottom-left corner (build.py reemplaza v40)
     gx.textAlign="left"; gx.fillStyle="rgba(255,255,255,.35)"; gx.font="700 11px "+FONT;
-    gx.fillText("v39",BOX.l+2,794);
+    gx.fillText("v40",BOX.l+2,794);
     // v22: assist-mode indicator
     if(Game.assist){ gx.textAlign="left"; gx.fillStyle="#7dd3c0"; gx.font="900 12px "+FONT;
       gx.fillText("🤖 ASSIST",BOX.l+6,24); gx.textAlign="right"; }
@@ -1950,31 +2085,34 @@ function updateParts(dt){
 function frame(ts){
   requestAnimationFrame(frame);
   const dt=Math.min(0.05,lastT?(ts-lastT)/1000:0.016); lastT=ts;
+  // v40: hit-stop — gameplay runs at 6% speed for a beat while ambient/UI stay real-time
+  let gdt=dt;
+  if(Game.hitStop>0){ Game.hitStop-=dt; gdt=dt*0.06; }
   // ambient systems always tick (title screen included)
   if(!A11y.rm){ Game.bgTime+=dt; updateBg(dt); }   // v17: reduced motion freezes ambient animation
   Game.flashA=Math.max(0,(Game.flashA||0)-dt*1.8);
   if(Game.comboPop>0)Game.comboPop=Math.max(0,Game.comboPop-dt*2.5);
   if(Game.state==="play"){
-    Game.time+=dt;
-    if(Game.cool>0)Game.cool-=dt;
+    Game.time+=gdt;
+    if(Game.cool>0)Game.cool-=gdt;
     // v18: keyboard aim
-    if(Keys.l) Game.aimX-=440*dt;
-    if(Keys.r) Game.aimX+=440*dt;
+    if(Keys.l) Game.aimX-=440*gdt;
+    if(Keys.r) Game.aimX+=440*gdt;
     if(Keys.l||Keys.r) Game.aimX=Math.max(BOX.l+10,Math.min(BOX.r-10,Game.aimX));
     // v7: combo freezes (no decay) while FEVER is active
-    if(Game.feverT>0){ Game.feverT-=dt; Game.comboT=Math.max(Game.comboT,0.6);
+    if(Game.feverT>0){ Game.feverT-=gdt; Game.comboT=Math.max(Game.comboT,0.6);
       if(Game.feverT<=0) toast("Fever over — nice run!");
     }
-    else if(Game.comboT>0){ Game.comboT-=dt; if(Game.comboT<=0)Game.combo=0; }
-    physStep(dt);
-    updateParts(dt);
+    else if(Game.comboT>0){ Game.comboT-=gdt; if(Game.comboT<=0)Game.combo=0; }
+    physStep(gdt);
+    updateParts(gdt);
     // danger check
     let worst=0;
     for(const b of Game.bodies){
       const btop=b.y-b.r, bspeed=Math.hypot(b.vx,b.vy);
       if(b.age>1.2 && btop<DANGER_Y && bspeed<160){
-        b.overT+=dt; worst=Math.max(worst,b.overT);
-      } else b.overT=Math.max(0,b.overT-dt*2);
+        b.overT+=gdt; worst=Math.max(worst,b.overT);
+      } else b.overT=Math.max(0,b.overT-gdt*2);
       // v10: CLOSE CALL — resting with its top edge within 10px of the line, never crossing it
       if(!b.countedClose && b.age>1.2 && btop>=DANGER_Y && btop<=DANGER_Y+10 && bspeed<80){
         b.countedClose=true;
@@ -1993,9 +2131,9 @@ function frame(ts){
     if(worst>0.4) Game.gameOver();   // v29: twitchy grace
   } else if(Game.state==="over" && !Game.panelShown){
     // death sequence: slow-mo tumble, then reveal panel + interstitial
-    Game.dieT+=dt;
-    physStep(dt*0.22);
-    updateParts(dt);
+    Game.dieT+=gdt;
+    physStep(gdt*0.22);
+    updateParts(gdt);
     if(Game.dieT>=1.4){
       Game.panelShown=true;
       ui.finalScore.textContent=Game.score;   // v25: include merges scored during the death tumble
@@ -2026,7 +2164,15 @@ cv.addEventListener("pointerup",e=>{
   if(Game.aiming){ Game.aimX=ptrX(e); Game.aiming=false; Game.drop(); }
 });
 cv.addEventListener("pointercancel",()=>{ Game.aiming=false; });
-document.addEventListener("visibilitychange",()=>{ if(document.hidden)Game.autoPause(true); });
+/* v40: tab hidden -> pause game (existing behavior) + stop music;
+   tab visible -> resume what the hide interrupted (game + music). */
+document.addEventListener("visibilitychange",()=>{
+  if(document.hidden){ Game.autoPause(true); Mus.stop(); }
+  else{
+    Game.autoPause(false);   // v40: reanuda el juego auto-pausado al volver
+    if(Mus.on && !Sfx.muted && !Sfx.adMuted && (Game.state==="play"||Game.state==="how")) Mus.start();
+  }
+});
 // Anti-scroll exigido por Poki/GamePix: flechas+espacio no scrollean; wheel solo se bloquea sobre el canvas
 window.addEventListener("keydown",e=>{
   if(e.key==="ArrowUp"||e.key==="ArrowDown"||e.key==="ArrowLeft"||e.key==="ArrowRight"||e.key===" "){ e.preventDefault(); }
